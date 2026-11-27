@@ -25,23 +25,21 @@ Variables) and redeploy. Sign-in only works on the hosted site, not when the fil
 |---|---|
 | `index.html` | The whole portal (login, dashboards, both forms) in one file |
 | `api/login.js` | Server-side sign-in (Vercel Function) |
+| `api/data.js`, `api/_lib.js` | Read and save portal data in giffin-db |
+| `api/health.js` | Database connection check |
+| `package.json` | Server dependency (`pg`) |
 | `db/schema.sql` | PostgreSQL tables for moving the data into a shared Neon database |
 
-## Where the data lives today
+## Database (giffin-db, Prisma Postgres via Vercel)
 
-The portal currently saves declarations, estimates and history in each user's
-browser (localStorage). Hosting it on Vercel gives everyone the same link, but the
-data is still per browser until the portal is connected to the database.
+All declarations, estimates, revisions, approvals and history are saved in the shared
+**giffin-db** database, so every user sees the same data from any computer.
 
-## Database (Prisma Postgres via Vercel)
-
-The Vercel team already has the Prisma Postgres integration (free plan), so the
-portal uses it as its PostgreSQL database.
-
-1. Vercel → project **giffin** → **Storage** → **Create Database** → **Prisma Postgres**
-   (name it `giffin-db`) → connect it to the **giffin** project for Production, Preview and Development.
-   Vercel adds `DATABASE_URL` (and related) environment variables automatically.
-2. Run `db/schema.sql` once against the database to create the tables
-   (Prisma Console query editor, or `psql "$DATABASE_URL" -f db/schema.sql`).
-3. Next step: add API routes that read and write these tables, and switch the portal's
-   save/load calls from the browser to the API.
+- `api/data.js`: reads and saves data. Every request must carry the signed session token from sign-in.
+  Project Managers can only save their own declarations; only Estimators and Approvers can change estimates.
+- `api/health.js`: open `/api/health` to check the database connection.
+- The tables (`portal_docs`, `portal_audit`) are created automatically on first use; see `db/schema.sql`.
+- The database connection string (`POSTGRES_URL`) was added to the project by the Prisma Postgres integration.
+- Every save is also copied to `portal_audit` (who, role, when, what) as a permanent audit trail.
+- Data that an earlier version saved inside a browser is moved into the database automatically the next time that browser signs in.
+- Unfinished form drafts still stay in each browser until they are submitted or saved.

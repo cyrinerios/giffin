@@ -1,0 +1,9 @@
+{
+  "name": "giffin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Giffin forms portal: Project Manager declarations, estimates and approvals",
+  "dependencies": {
+    "pg": "8.13.1"
+  }
+}

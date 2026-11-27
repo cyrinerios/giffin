@@ -181,6 +181,14 @@ ul.chg li.chg span{background:light-dark(#fff3dc,#3a2a0c);color:var(--amber)}
 .sumt tr.st td{font-weight:800;background:var(--head)}.sumt tr.gt td{font-weight:800;font-size:17px;border-top:2px solid var(--ink);border-bottom:0;padding-top:12px}
 .sfoot{font-size:13px;color:var(--mute);margin:10px 0 0}
 @media(max-width:760px){.sq{flex-direction:column}}
+.rng{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px}.rng input[type=date]{font:inherit;font-size:16px;min-height:46px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:var(--field);color:var(--ink)}
+.qk{display:flex;gap:8px;flex-wrap:wrap}
+.rep{margin-bottom:34px}.rep .bar{margin-bottom:4px}.cnt{display:inline-block;min-width:28px;padding:1px 9px;border-radius:99px;background:var(--head);color:var(--blue);font-size:15px;text-align:center;vertical-align:middle}
+.rsub{margin:0 0 10px;font-size:14px;color:var(--mute)}
+.atw{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+.at{width:100%;border-collapse:collapse;font-size:14px;min-width:980px}.at th{background:var(--brand);color:#fff;text-align:left;font-size:12.5px;padding:9px 10px;white-space:nowrap}
+.at td{padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}.at td.n,.at th.n{text-align:right;white-space:nowrap}.at td.st{font-weight:700;white-space:nowrap}
+.at tbody tr:nth-child(even) td{background:var(--field)}
 /* ---------- app frame ---------- */
 #app{position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:5}
 body.in{overflow:hidden}
@@ -206,6 +214,7 @@ body.in{overflow:hidden}
         <option value="est">Estimator</option>
         <option value="apr">Estimate Approver</option>
         <option value="sal">Sales</option>
+        <option value="adm">Admin</option>
       </select>
       <p class="rhint" id="roleHint"></p>
     </div>
@@ -216,6 +225,10 @@ body.in{overflow:hidden}
     <div class="who" id="estBox" hidden>
       <label class="l" for="estName">Username</label>
       <input type="text" id="estName" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Your username">
+    </div>
+    <div class="who" id="admBox" hidden>
+      <label class="l" for="admName">Username</label>
+      <input type="text" id="admName" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Your username">
     </div>
     <div class="who" id="salBox" hidden>
       <label class="l" for="salName">Username</label>
@@ -316,7 +329,7 @@ async function refresh(){
   }catch(e){}
   return !same;
 }
-function setSync(st){const el=$('sync');if(!el)return;el.className='sync '+st;el.textContent={ok:ME&&ME.r==='sal'?'● Up to date':'● Saved to shared database',saving:'● Saving…',error:'● Not saved, check connection',load:'● Loading…'}[st]||''}
+function setSync(st){const el=$('sync');if(!el)return;el.className='sync '+st;el.textContent={ok:ME&&(ME.r==='sal'||ME.r==='adm')?'● Up to date':'● Saved to shared database',saving:'● Saving…',error:'● Not saved, check connection',load:'● Loading…'}[st]||''}
 async function enter(){
   $('dBody').innerHTML='<div class="empty"><b>Loading…</b>Getting the latest declarations and estimates.</div>';show('dash');setSync('load');
   try{await refresh();setSync('ok')}catch(e){if(!ME)return;setSync('error');toast('Could not load data: '+e.message)}
@@ -325,7 +338,7 @@ async function enter(){
 // keep dashboards up to date while they are open
 setInterval(async()=>{
   if(!ME||$('dash').hidden||!$('viewer').hidden||!$('adlg').hidden||DB.pending)return;
-  try{if(await refresh())(ME.r==='sal'?salesSearch():renderDash());setSync('ok')}catch(e){setSync('error')}
+  try{if(await refresh())(ME.r==='sal'?salesSearch():ME.r==='adm'?admRender():renderDash());setSync('ok')}catch(e){setSync('error')}
 },20000);
 const money=(v,c)=>(c||'AED')+' '+Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const last=e=>e.revisions[e.revisions.length-1];
@@ -426,6 +439,123 @@ function estRow(e){
     ${apprChip(e)}
     <div class="acts"><button class="btn sm" type="button" data-hist="${esc(e.id)}">History</button><button class="btn sm p" type="button" data-rev="${esc(e.id)}">Revise</button></div></div>`;
 }
+// ---------- Admin: date-range reports ----------
+const ADM={from:'',to:''};
+const isoLocal=ts=>{const d=new Date(ts),p2=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())};
+const niceDate=iso=>iso?new Date(iso+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
+const decStatusText=d=>{const E=estFor(d);if((d.status==='created'||d.status==='done')&&E){const k=apprState(E);return k==='approved'?'Estimate approved':k==='returned'?'Estimate returned':'Estimate pending approval'}return {sub:'Submitted',ip:'In estimation',drev:'Revised, waiting for estimate'}[d.status]||'Submitted'};
+function admData(){
+  const f=ADM.from,t=ADM.to,inR=iso=>(!f||iso>=f)&&(!t||iso<=t);
+  const decs=load().filter(d=>inR(d.date||isoLocal(d.submittedAt))).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.decNo.localeCompare(b.decNo));
+  const ests=loadE().filter(e=>inR(isoLocal(e.createdAt))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+  const decRows=decs.map((d,i)=>{const DR=decRevs(d),E=estFor(d);return {no:i+1,ref:decLabel(d),date:niceDate(d.date||isoLocal(d.submittedAt)),pm:d.pm,jobs:d.jobs.map(J=>J.name||'Untitled').join('; '),items:itemCount(d),rev:decRevNo(d)?'R'+decRevNo(d):'R0',lastRev:decRevNo(d)?whenS(DR.slice(-1)[0].at):'',status:decStatusText(d),est:E?E.estNo:''}});
+  const estRows=ests.map((e,i)=>{const L=last(e),a=apprFor(e,L.rev),st=apprState(e);return {no:i+1,ref:e.estNo,dec:e.decNo||'Blank estimate',pm:e.pm,created:whenS(e.createdAt),by:e.revisions[0].by,rev:'Rev '+L.rev,lastRev:L.rev?whenS(L.at)+' by '+L.by:'',total:+(+L.total).toFixed(2),cur:L.cur||'AED',status:APPR[st][0],decided:a?(a.action==='approved'?'Approved':'Returned')+' by '+a.by+' · '+whenS(a.at)+(a.comment?' · “'+a.comment+'”':''):''}});
+  return {decRows,estRows};
+}
+const DEC_COLS=[['no','#'],['ref','Declaration No.'],['date','Declaration date'],['pm','Project Manager'],['jobs','Job / Scope'],['items','Items'],['rev','Revision'],['lastRev','Last revised'],['status','Status'],['est','Estimate No.']];
+const EST_COLS=[['no','#'],['ref','Estimation No.'],['dec','Declaration'],['pm','Project Manager'],['created','Created'],['by','Created by'],['rev','Latest rev'],['lastRev','Last revised'],['total','Grand total'],['status','Approval status'],['decided','Decision']];
+function admTable(cols,rows){
+  return `<div class="atw"><table class="at"><thead><tr>${cols.map(([k,t])=>`<th class="${k==='total'||k==='items'||k==='no'?'n':''}">${t}</th>`).join('')}</tr></thead><tbody>
+  ${rows.map(r=>`<tr>${cols.map(([k])=>`<td class="${k==='total'||k==='items'||k==='no'?'n':''}${k==='status'?' st':''}">${k==='total'?esc(r.cur+' '+Number(r.total).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})):esc(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function admRender(){
+  const out=$('admOut');if(!out)return;
+  ADM.from=$('admFrom').value;ADM.to=$('admTo').value;
+  if(ADM.from&&ADM.to&&ADM.from>ADM.to){out.innerHTML='<div class="tray"><div class="empty"><b>“From” is after “To”</b>Pick a valid date range.</div></div>';return}
+  const {decRows,estRows}=admData(),rangeTxt=niceDate(ADM.from)+' to '+niceDate(ADM.to);
+  const cnt=(rows,k)=>rows.filter(r=>r.status===k).length;
+  const totalApproved=estRows.filter(r=>r.status==='Approved').reduce((a,r)=>a+r.total,0);
+  out.innerHTML=`<section class="rep"><div class="bar"><h2>Project Manager Declarations <span class="cnt">${decRows.length}</span></h2>
+      <button class="btn" type="button" data-rep="dec:pdf">Print PDF</button><button class="btn p" type="button" data-rep="dec:xls">Export Excel</button></div>
+    <p class="rsub">Declaration date ${esc(rangeTxt)} · ${cnt(decRows,'Submitted')} submitted · ${cnt(decRows,'In estimation')} in estimation · ${cnt(decRows,'Revised, waiting for estimate')} revised · ${decRows.filter(r=>r.status.startsWith('Estimate')).length} estimated</p>
+    ${decRows.length?admTable(DEC_COLS,decRows):'<div class="tray"><div class="empty"><b>No declarations in this date range</b></div></div>'}</section>
+    <section class="rep"><div class="bar"><h2>Estimates <span class="cnt">${estRows.length}</span></h2>
+      <button class="btn" type="button" data-rep="est:pdf">Print PDF</button><button class="btn p" type="button" data-rep="est:xls">Export Excel</button></div>
+    <p class="rsub">Created ${esc(rangeTxt)} · ${cnt(estRows,'Pending approval')} pending approval · ${cnt(estRows,'Approved')} approved · ${cnt(estRows,'Returned for revision')} returned · approved value AED ${totalApproved.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+    ${estRows.length?admTable(EST_COLS,estRows):'<div class="tray"><div class="empty"><b>No estimates in this date range</b></div></div>'}</section>`;
+}
+function admReport(kind,fmt){
+  const {decRows,estRows}=admData(),rows=kind==='dec'?decRows:estRows,cols=kind==='dec'?DEC_COLS:EST_COLS;
+  const title=kind==='dec'?'Project Manager Declarations':'Estimates',rangeTxt=niceDate(ADM.from)+' to '+niceDate(ADM.to);
+  const base=(kind==='dec'?'Declarations':'Estimates')+' '+ADM.from+' to '+ADM.to;
+  if(!rows.length){toast('There is nothing in this date range to '+(fmt==='pdf'?'print':'export')+'.');return}
+  if(fmt==='xls'){
+    const H=v=>({v,s:'h'}),T=v=>({v,s:'t'}),B=v=>({v,s:'b'});
+    const L=[[ '',T(title.toUpperCase())],[],['',B(kind==='dec'?'Declaration date:':'Created:'),rangeTxt],['',B('Records:'),rows.length],['',B('Generated:'),whenS(new Date().toISOString())+' by '+ME.name],[],cols.map(([,t])=>H(t))];
+    rows.forEach(r=>L.push(cols.map(([k])=>k==='total'?{v:r.total,s:'n'}:(k==='no'||k==='items')?r[k]:String(r[k]??''))));
+    if(kind==='est'){const tot=rows.reduce((a,r)=>a+r.total,0);L.push([],['',B('Total of all estimates'),'','','','','','',{v:+tot.toFixed(2),s:'bn'}],['',B('Total approved'),'','','','','','',{v:+rows.filter(r=>r.status==='Approved').reduce((a,r)=>a+r.total,0).toFixed(2),s:'bn'}])}
+    const widths=kind==='dec'?[5,30,16,16,36,8,10,22,28,28]:[5,28,30,16,22,14,10,30,16,22,50];
+    try{const url=URL.createObjectURL(xlsxBlob(L,widths)),a=document.createElement('a');a.href=url;a.download=base+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);toast('Excel file downloaded.')}
+    catch(e){toast('The download was blocked by the browser.')}
+    return;
+  }
+  const logo=(document.querySelector('.logo'))?.outerHTML||'';
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(base)}</title><style>
+    @page{size:A4 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;width:210mm}
+    body{padding:12mm 10mm 14mm;font:9.5px/1.35 Figtree,Arial,sans-serif;color:#0c1f33;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .hd{display:flex;align-items:center;gap:10px;border-bottom:3px solid #046cb4;padding-bottom:8px;margin-bottom:10px}.hd .logo{height:44px;width:auto}h1{margin:0;font-size:18px}
+    .meta{display:flex;gap:22px;margin-bottom:10px;font-size:9px;color:#546579;font-weight:600}.meta b{display:block;font-size:11px;color:#0c1f33}
+    table{width:100%;border-collapse:collapse;table-layout:auto}th{font-size:8.5px;text-align:left;background:#046cb4;color:#fff;padding:5px 4px}td{padding:4px;border-bottom:1px solid #d9e3ee;vertical-align:top;overflow-wrap:anywhere}
+    .n{text-align:right;white-space:nowrap}tr{break-inside:avoid}thead{display:table-header-group}tbody tr:nth-child(even) td{background:#f3f7fb}.ft{margin-top:8px;font-size:9px;color:#546579}</style></head><body>
+    <div class="hd">${logo}<h1>${esc(title)}</h1></div>
+    <div class="meta"><div>${kind==='dec'?'Declaration date':'Created'}<b>${esc(rangeTxt)}</b></div><div>Records<b>${rows.length}</b></div><div>Generated<b>${esc(whenS(new Date().toISOString()))} by ${esc(ME.name)}</b></div></div>
+    <table><thead><tr>${cols.map(([k,t])=>`<th class="${k==='total'||k==='items'||k==='no'?'n':''}">${t}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(r=>`<tr>${cols.map(([k])=>`<td class="${k==='total'||k==='items'||k==='no'?'n':''}">${k==='total'?esc(r.cur+' '+Number(r.total).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})):esc(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    ${kind==='est'?`<p class="ft">Total of all estimates: AED ${rows.reduce((a,r)=>a+r.total,0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Approved: AED ${rows.filter(r=>r.status==='Approved').reduce((a,r)=>a+r.total,0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>`:''}</body></html>`;
+  printDoc(html,base);
+}
+function printDoc(html,name){
+  document.getElementById('printFrame')?.remove();
+  const f=document.createElement('iframe');f.id='printFrame';f.title='Print';f.setAttribute('aria-hidden','true');
+  f.style.cssText='position:fixed;left:-10000px;top:0;width:900px;height:1200px;border:0;opacity:0;pointer-events:none';
+  document.body.appendChild(f);
+  f.addEventListener('load',()=>{const pt=document.title;document.title=name;setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print()}catch(x){toast('Printing was blocked by the browser.')}setTimeout(()=>{document.title=pt},1000)},300);try{f.contentWindow.addEventListener('afterprint',()=>setTimeout(()=>f.remove(),300))}catch(x){}});
+  f.srcdoc=html;
+}
+// ---------- small .xlsx writer (no internet needed) ----------
+const LOGO_PNG='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';
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u){let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=CRC_T[(c^u[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function zipBlob(files){
+  const enc=new TextEncoder(),parts=[],cen=[];let off=0;
+  files.forEach(([name,txt])=>{
+    const nm=enc.encode(name),data=typeof txt==='string'?enc.encode(txt):txt,crc=crc32(data),h=new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint32(14,crc,true);h.setUint32(18,data.length,true);h.setUint32(22,data.length,true);h.setUint16(26,nm.length,true);
+    parts.push(new Uint8Array(h.buffer),nm,data);
+    const c=new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint32(16,crc,true);c.setUint32(20,data.length,true);c.setUint32(24,data.length,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);
+    cen.push(new Uint8Array(c.buffer),nm);off+=30+nm.length+data.length;
+  });
+  const size=cen.reduce((a,x)=>a+x.length,0),e=new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,size,true);e.setUint32(16,off,true);
+  return new Blob([...parts,...cen,new Uint8Array(e.buffer)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function xlsxBlob(rows,widths){
+  const X=v=>String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const col=i=>i<26?String.fromCharCode(65+i):String.fromCharCode(64+Math.floor(i/26))+String.fromCharCode(65+i%26);
+  const SI={b:1,n:2,bn:3,t:4,h:5};
+  const body=rows.map((r,ri)=>`<row r="${ri+1}"${ri===0?' ht="48" customHeight="1"':''}>`+r.map((c,ci)=>{
+    const v=c&&typeof c==='object'?c.v:c,st=c&&typeof c==='object'?SI[c.s]||0:0,ref=col(ci)+(ri+1),sa=st?` s="${st}"`:'';
+    if(v===''||v==null)return st?`<c r="${ref}"${sa}/>`:'';
+    return typeof v==='number'?`<c r="${ref}"${sa}><v>${v}</v></c>`:`<c r="${ref}"${sa} t="inlineStr"><is><t xml:space="preserve">${X(v)}</t></is></c>`;
+  }).join('')+'</row>').join('');
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><cols>${widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${body}</sheetData><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/><drawing r:id="rId1"/></worksheet>`;
+  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts><fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="18"/><color rgb="FF046CB4"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF046CB4"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const EMU=9525,lh=58,lw=Math.round(lh*199/220);
+  const drawing=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>${2*EMU}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${3*EMU}</xdr:rowOff></xdr:from><xdr:ext cx="${lw*EMU}" cy="${lh*EMU}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${lw*EMU}" cy="${lh*EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`;
+  const RELNS='http://schemas.openxmlformats.org/package/2006/relationships',DOCREL='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  return zipBlob([
+    ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${DOCREL}"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${DOCREL}/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/worksheets/sheet1.xml',sheet],['xl/styles.xml',styles],
+    ['xl/worksheets/_rels/sheet1.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/drawing" Target="../drawings/drawing1.xml"/></Relationships>`],
+    ['xl/drawings/drawing1.xml',drawing],
+    ['xl/drawings/_rels/drawing1.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/image" Target="../media/image1.png"/></Relationships>`],
+    ['xl/media/image1.png',Uint8Array.from(atob(LOGO_PNG),c=>c.charCodeAt(0))]
+  ]);
+}
 // ---------- Sales: search + summary ----------
 const SAL_ST={approved:['Approved','done','The estimate is approved. You can view and print the summary.'],pending:['Pending approval','ip','The estimate is waiting for approval.'],returned:['Returned for revision','ret','The approver returned the estimate to the Estimator for changes.']};
 const DEC_ST={sub:'Submitted, not yet estimated',ip:'In estimation',drev:'Revised declaration, waiting for an updated estimate',created:'Estimate created',done:'Estimate created'};
@@ -492,13 +622,25 @@ let filterPM='';
 function renderDash(){
   if(ME&&ME.exp&&ME.exp<Date.now()){window.__logout();$('err').textContent='Your session has ended. Please sign in again.';return}
   const all=load().sort((a,b)=>b.submittedAt.localeCompare(a.submittedAt));
-  $('dWho').innerHTML='Logged in as <b>'+({pm:'Project Manager',est:'Estimator',apr:'Estimate Approver',sal:'Sales'}[ME.r])+' · '+esc(ME.name)+'</b>';
+  $('dWho').innerHTML='Logged in as <b>'+({pm:'Project Manager',est:'Estimator',apr:'Estimate Approver',sal:'Sales',adm:'Admin'}[ME.r])+' · '+esc(ME.name)+'</b>';
   if(ME.r==='pm'){
     const mine=all.filter(d=>d.pm===ME.name);
     $('dTitle').textContent='Project Manager Dashboard';$('dSub').textContent='Your declarations submitted to the Estimator.';
     $('dBody').innerHTML=stats(mine,loadE().filter(e=>mine.some(d=>d.id===e.decId)),'pm')+`<div class="bar"><h2>My submitted declarations</h2><button class="btn g" type="button" id="newDec">+ New declaration</button></div>
       <div class="tray">${mine.length?mine.map(d=>rowHTML(d,false)).join(''):'<div class="empty"><b>No declarations submitted yet</b>Create a new declaration and press Submit to Estimator.</div>'}</div>`;
     $('newDec').onclick=()=>openForm('pm',{__SEQ__:nextSeq(ME.name)});
+  }else if(ME.r==='adm'){
+    $('dTitle').textContent='Admin Dashboard';$('dSub').textContent='Reports of declarations and estimates for a date range.';
+    if(!$('admFrom')){
+      const t=new Date(),p2=n=>String(n).padStart(2,'0'),iso=d=>d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate());
+      const f=ADM.from||iso(new Date(t.getFullYear(),t.getMonth(),1)),to=ADM.to||iso(new Date(t.getFullYear(),t.getMonth()+1,0));
+      $('dBody').innerHTML=`<div class="rng"><div><label class="l" for="admFrom">From</label><input type="date" id="admFrom" value="${f}"></div>
+        <div><label class="l" for="admTo">To</label><input type="date" id="admTo" value="${to}"></div>
+        <div class="qk"><button class="btn sm" type="button" data-qr="this">This month</button><button class="btn sm" type="button" data-qr="last">Last month</button><button class="btn sm" type="button" data-qr="year">This year</button></div></div>
+        <div id="admOut"></div>`;
+      ['admFrom','admTo'].forEach(id=>$(id).addEventListener('change',admRender));
+    }
+    admRender();
   }else if(ME.r==='sal'){
     $('dTitle').textContent='Sales Dashboard';$('dSub').textContent='Look up an estimate by its reference to check its status.';
     if(!$('salQ')){
@@ -738,6 +880,10 @@ $('dBody').addEventListener('click',e=>{
   const dr=e.target.closest('[data-drev]');if(dr){reviseDec(dr.dataset.drev);return}
   const s=e.target.closest('[data-est]');if(s){estimate(s.dataset.est);return}
   const h=e.target.closest('[data-hist]');if(h){showHistory(h.dataset.hist);return}
+  const rp=e.target.closest('[data-rep]');if(rp){const [k,f]=rp.dataset.rep.split(':');admReport(k,f);return}
+  const qr=e.target.closest('[data-qr]');if(qr){const t=new Date(),p2=n=>String(n).padStart(2,'0'),iso=d=>d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate());
+    const y=t.getFullYear(),m=t.getMonth(),r={this:[new Date(y,m,1),new Date(y,m+1,0)],last:[new Date(y,m-1,1),new Date(y,m,0)],year:[new Date(y,0,1),new Date(y,11,31)]}[qr.dataset.qr];
+    $('admFrom').value=iso(r[0]);$('admTo').value=iso(r[1]);admRender();return}
   const sv=e.target.closest('[data-sview]');if(sv){salesView(sv.dataset.sview);return}
   const sp=e.target.closest('[data-sprint]');if(sp){salesPrint(sp.dataset.sprint);return}
   const ap=e.target.closest('[data-appr]');if(ap){const [i,a]=ap.dataset.appr.split(':');askApproval(i,a);return}
@@ -802,14 +948,14 @@ $('dOut').onclick=()=>window.__logout();
 function saveSession(){try{sessionStorage.setItem(SKEY,JSON.stringify(ME))}catch(e){}}
 
 // ---------- login ----------
-const ROLE_HINT={pm:'Create declarations and submit them to the Estimator.',est:'Review received declarations and estimate them.',apr:'Approve estimates or return them for revision.',sal:'Look up an estimate by its reference and print approved estimate summaries.'};
+const ROLE_HINT={pm:'Create declarations and submit them to the Estimator.',est:'Review received declarations and estimate them.',apr:'Approve estimates or return them for revision.',sal:'Look up an estimate by its reference and print approved estimate summaries.',adm:'Print and export reports of declarations and estimates for a date range.'};
 const role=()=>$('roleSel').value;
-function showWho(){const r=role();$('pmBox').hidden=r!=='pm';$('estBox').hidden=r!=='est';$('aprBox').hidden=r!=='apr';$('salBox').hidden=r!=='sal';$('pwBox').hidden=!r;$('roleHint').textContent=ROLE_HINT[r]||'';$('err').textContent=''}
-const nameEl=r=>r==='pm'?$('pmSel'):r==='apr'?$('aprName'):r==='sal'?$('salName'):$('estName');
+function showWho(){const r=role();$('pmBox').hidden=r!=='pm';$('estBox').hidden=r!=='est';$('aprBox').hidden=r!=='apr';$('salBox').hidden=r!=='sal';$('admBox').hidden=r!=='adm';$('pwBox').hidden=!r;$('roleHint').textContent=ROLE_HINT[r]||'';$('err').textContent=''}
+const nameEl=r=>r==='pm'?$('pmSel'):r==='apr'?$('aprName'):r==='sal'?$('salName'):r==='adm'?$('admName'):$('estName');
 $('roleSel').addEventListener('change',()=>{showWho();if(role())nameEl(role()).focus()});
 $('pwEye').onclick=()=>{const v=$('pw').type==='password';$('pw').type=v?'text':'password';$('pwEye').textContent=v?'Hide':'Show';$('pwEye').setAttribute('aria-pressed',String(v));$('pwEye').setAttribute('aria-label',v?'Hide password':'Show password')};
-['pmSel','estName','aprName','salName','pw'].forEach(id=>$(id).addEventListener('input',()=>$('err').textContent=''));
-try{const L=JSON.parse(localStorage.getItem(LKEY)||'{}');if(L.role)$('roleSel').value=L.role;if(L.pm)$('pmSel').value=L.pm;if(L.est)$('estName').value=L.est;if(L.apr)$('aprName').value=L.apr;if(L.sal)$('salName').value=L.sal}catch(e){}
+['pmSel','estName','aprName','salName','admName','pw'].forEach(id=>$(id).addEventListener('input',()=>$('err').textContent=''));
+try{const L=JSON.parse(localStorage.getItem(LKEY)||'{}');if(L.role)$('roleSel').value=L.role;if(L.pm)$('pmSel').value=L.pm;if(L.est)$('estName').value=L.est;if(L.apr)$('aprName').value=L.apr;if(L.sal)$('salName').value=L.sal;if(L.adm)$('admName').value=L.adm}catch(e){}
 showWho();
 $('f').addEventListener('submit',async e=>{
   e.preventDefault();
@@ -826,10 +972,10 @@ $('f').addEventListener('submit',async e=>{
   go.disabled=false;go.textContent='Login';
   if(!res||!res.ok){$('err').textContent=(res&&res.error)||'Sign-in failed.';$('pw').select();return}
   $('pw').value='';$('pw').type='password';$('pwEye').textContent='Show';
-  try{localStorage.setItem(LKEY,JSON.stringify({role:r,pm:$('pmSel').value,est:$('estName').value.trim(),apr:$('aprName').value.trim(),sal:$('salName').value.trim()}))}catch(e){}
+  try{localStorage.setItem(LKEY,JSON.stringify({role:r,pm:$('pmSel').value,est:$('estName').value.trim(),apr:$('aprName').value.trim(),sal:$('salName').value.trim(),adm:$('admName').value.trim()}))}catch(e){}
   ME={r:res.role,name:res.name,token:res.token,exp:res.exp};saveSession();enter();
 });
-try{const ss=JSON.parse(sessionStorage.getItem(SKEY)||'null');if(ss&&ss.token&&ss.exp>Date.now()&&(ss.r==='pm'&&PMS.includes(ss.name)||(ss.r==='est'||ss.r==='apr'||ss.r==='sal')&&ss.name)){ME=ss;enter()}else sessionStorage.removeItem(SKEY)}catch(e){}
+try{const ss=JSON.parse(sessionStorage.getItem(SKEY)||'null');if(ss&&ss.token&&ss.exp>Date.now()&&(ss.r==='pm'&&PMS.includes(ss.name)||(ss.r==='est'||ss.r==='apr'||ss.r==='sal'||ss.r==='adm')&&ss.name)){ME=ss;enter()}else sessionStorage.removeItem(SKEY)}catch(e){}
 }
 </script>
 </body>

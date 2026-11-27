@@ -5,6 +5,7 @@
 // Who may write what:
 //   declaration: Project Managers (only their own) and Estimators (status / estimate links)
 //   estimate:    Estimators (create / revise) and Estimate Approvers (approve / return)
+// Admin can read everything (reports) but cannot change anything; Sales only gets summaries.
 const { verifyToken, db, ensureSchema, send } = require('./_lib');
 
 const MAX_DOC_BYTES = 2_000_000;

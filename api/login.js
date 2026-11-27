@@ -1,10 +1,10 @@
 // POST /api/login  { role: 'pm' | 'est' | 'apr', username, password }
-// Roles: pm, est, apr, sal. Users and passwords live only in the Vercel environment variable PORTAL_USERS (never in this repo):
+// Roles: pm, est, apr, sal, adm. Users and passwords live only in the Vercel environment variable PORTAL_USERS (never in this repo):
 //   [{"u":"Eyad","r":"pm","p":"..."}, {"u":"Cyrine","r":"est","p":"..."}, {"u":"Merwin","r":"apr","p":"..."}]
 // On success it returns a signed session token (HMAC with SESSION_SECRET) that later API routes can verify.
 const crypto = require('crypto');
 
-const ROLES = { pm: 'Project Manager', est: 'Estimator', apr: 'Estimate Approver', sal: 'Sales' };
+const ROLES = { pm: 'Project Manager', est: 'Estimator', apr: 'Estimate Approver', sal: 'Sales', adm: 'Admin' };
 const SESSION_HOURS = 12;
 
 function safeEqual(a, b) {

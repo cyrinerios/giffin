@@ -485,7 +485,9 @@ function admReport(kind,fmt){
     rows.forEach(r=>L.push(cols.map(([k])=>k==='total'?{v:r.total,s:'n'}:(k==='no'||k==='items')?r[k]:String(r[k]??''))));
     if(kind==='est'){const tot=rows.reduce((a,r)=>a+r.total,0);L.push([],['',B('Total of all estimates'),'','','','','','',{v:+tot.toFixed(2),s:'bn'}],['',B('Total approved'),'','','','','','',{v:+rows.filter(r=>r.status==='Approved').reduce((a,r)=>a+r.total,0).toFixed(2),s:'bn'}])}
     const widths=kind==='dec'?[5,30,16,16,36,8,10,22,28,28]:[5,28,30,16,22,14,10,30,16,22,50];
-    try{const url=URL.createObjectURL(xlsxBlob(L,widths)),a=document.createElement('a');a.href=url;a.download=base+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);toast('Excel file downloaded.')}
+    const sheets=[{name:kind==='dec'?'Declarations':'Estimates',rows:L,widths,freeze:7}];
+    sheets.push(kind==='dec'?decBreakdownSheet():estBreakdownSheet());
+    try{const url=URL.createObjectURL(xlsxBook(sheets)),a=document.createElement('a');a.href=url;a.download=base+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);toast('Excel file downloaded, with the summary and the full breakdown.')}
     catch(e){toast('The download was blocked by the browser.')}
     return;
   }
@@ -503,6 +505,58 @@ function admReport(kind,fmt){
     ${rows.map(r=>`<tr>${cols.map(([k])=>`<td class="${k==='total'||k==='items'||k==='no'?'n':''}">${k==='total'?esc(r.cur+' '+Number(r.total).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})):esc(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table>
     ${kind==='est'?`<p class="ft">Total of all estimates: AED ${rows.reduce((a,r)=>a+r.total,0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Approved: AED ${rows.filter(r=>r.status==='Approved').reduce((a,r)=>a+r.total,0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>`:''}</body></html>`;
   printDoc(html,base);
+}
+// ---- Excel breakdown sheets (Admin) ----
+function admRange(){const f=ADM.from,t=ADM.to;return iso=>(!f||iso>=f)&&(!t||iso<=t)}
+function decBreakdownSheet(){
+  const inR=admRange(),H=v=>({v,s:'h'});
+  const decs=load().filter(d=>inR(d.date||isoLocal(d.submittedAt))).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.decNo.localeCompare(b.decNo));
+  const cols=['Declaration No.','Declaration date','Project Manager','Status','Job / Scope','Section','#','Description','Basis / UOM','Hrs','Qty','Days'];
+  const R=[['',{v:'DECLARATION BREAKDOWN',s:'t'}],[],['','Every item of every declaration in the date range (latest revision).'],[],cols.map(H)];
+  decs.forEach(d=>{
+    const ref=decLabel(d),dt=niceDate(d.date||isoLocal(d.submittedAt)),st=decStatusText(d);
+    R.push([{v:ref,s:'j'},{v:dt,s:'j'},{v:d.pm,s:'j'},{v:st,s:'j'},{v:d.jobs.length+' job(s), '+itemCount(d)+' item(s)',s:'j'},...Array(7).fill({v:'',s:'j'})]);
+    d.jobs.forEach((J,ji)=>{let n=0;
+      SECS.forEach(([k,nm])=>{
+        J.rows.filter(r=>r.s===k&&String(r.d||'').trim()).forEach(r=>{const fr=FREE.includes(r.s);
+          R.push([ref,dt,d.pm,st,'Job '+(ji+1)+': '+(J.name||''),nm,++n,r.d,fr?(r.u||''):basis(r),fr?'':(filled(r.h)?num(r.h):''),filled(r.q)?num(r.q):'',fr?'':(filled(r.y)?num(r.y):'')]);
+        });
+      });
+      if(!n)R.push([ref,dt,d.pm,st,'Job '+(ji+1)+': '+(J.name||''),'','','No items declared','','','','']);
+    });
+    R.push([]);
+  });
+  if(!decs.length)R.push(['','No declarations in this date range.']);
+  return {name:'Declaration items',rows:R,widths:[28,15,15,26,30,20,5,34,24,7,7,7],freeze:5};
+}
+function estBreakdownSheet(){
+  const inR=admRange(),H=v=>({v,s:'h'});
+  const ests=loadE().filter(e=>inR(isoLocal(e.createdAt))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+  const cols=['Estimation No.','Rev','Approval status','Job / Scope','Section','#','Description','Basis / UOM','Unit price','Hrs','Qty','Days','Total cost','Total (with markups)'];
+  const R=[['',{v:'ESTIMATE BREAKDOWN',s:'t'}],[],['','Full breakdown of the latest revision of every estimate in the date range.'],[],cols.map(H)];
+  const cv=c=>c&&typeof c==='object'?c.v:c,nm=v=>{const n=parseFloat(v);return isFinite(n)?+n.toFixed(2):''};
+  const band=(sty,vals)=>vals.map(v=>({v,s:sty}));
+  ests.forEach(e=>{
+    const L=last(e),st=APPR[apprState(e)][0],D=L.data||{},cur=L.cur||'AED',rv='Rev '+L.rev;
+    const rates=[['oh','Overhead'],['mk','Markup'],['cont','Contingency'],['nego','Negotiation']].map(([k,t])=>t+' '+(D[k]??'')+'%').join(' · ');
+    R.push(band('j',[e.estNo,rv,st,'PM '+e.pm+(e.decNo?' · from '+e.decNo:''),'','','Rates: '+rates+' · Currency '+cur,'','','','','','','']));
+    let job='',sec='';
+    (L.rows||[]).forEach(r=>{
+      if(!r||!r.length)return;
+      const lab=String(cv(r[1])??''),m=lab.match(/^JOB \/ SCOPE (\d+):?\s*(.*)$/i);
+      if(m){job='Job '+m[1]+': '+m[2];sec='';return}
+      if(!job)return;
+      const c0=cv(r[0]);
+      if(typeof c0==='number'){R.push([e.estNo,rv,st,job,sec,c0,cv(r[1]),cv(r[2])??'',nm(cv(r[3])),cv(r[4])||'',cv(r[5])||'',cv(r[6])||'',{v:nm(cv(r[7])),s:'n'},{v:nm(cv(r[8])),s:'n'}]);return}
+      if(/ subtotal$/i.test(lab)){R.push([...band('sub',[e.estNo,rv,st,job,sec,'',lab,'','','','','']),{v:nm(cv(r[7])),s:'subn'},{v:nm(cv(r[8])),s:'subn'}]);return}
+      if(/^Job \d+ total/i.test(lab)){R.push([...band('tot',[e.estNo,rv,st,job,'','',lab,'','','','','']),{v:nm(cv(r[7])),s:'totn'},{v:nm(cv(r[8])),s:'totn'}]);return}
+      if(/^GRAND TOTAL/i.test(lab)&&cv(r[8])!=null&&cv(r[8])!==''){R.push([...band('tot',[e.estNo,rv,st,'All jobs','','','GRAND TOTAL','','','','','']),{v:nm(cv(r[7])),s:'totn'},{v:nm(cv(r[8])),s:'totn'}]);job='';return}
+      if(lab&&r[1]&&r[1].s==='sec')sec=lab;
+    });
+    R.push([]);
+  });
+  if(!ests.length)R.push(['','No estimates in this date range.']);
+  return {name:'Estimate breakdown',rows:R,widths:[27,7,20,30,20,5,34,24,12,6,6,6,14,18],freeze:5};
 }
 function printDoc(html,name){
   document.getElementById('printFrame')?.remove();
@@ -530,32 +584,41 @@ function zipBlob(files){
   e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,size,true);e.setUint32(16,off,true);
   return new Blob([...parts,...cen,new Uint8Array(e.buffer)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
-function xlsxBlob(rows,widths){
+// sheets: [{name, rows, widths, freeze}] ; the logo goes on the first sheet
+function xlsxBook(sheets){
   const X=v=>String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const col=i=>i<26?String.fromCharCode(65+i):String.fromCharCode(64+Math.floor(i/26))+String.fromCharCode(65+i%26);
-  const SI={b:1,n:2,bn:3,t:4,h:5};
-  const body=rows.map((r,ri)=>`<row r="${ri+1}"${ri===0?' ht="48" customHeight="1"':''}>`+r.map((c,ci)=>{
-    const v=c&&typeof c==='object'?c.v:c,st=c&&typeof c==='object'?SI[c.s]||0:0,ref=col(ci)+(ri+1),sa=st?` s="${st}"`:'';
-    if(v===''||v==null)return st?`<c r="${ref}"${sa}/>`:'';
-    return typeof v==='number'?`<c r="${ref}"${sa}><v>${v}</v></c>`:`<c r="${ref}"${sa} t="inlineStr"><is><t xml:space="preserve">${X(v)}</t></is></c>`;
-  }).join('')+'</row>').join('');
-  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><cols>${widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${body}</sheetData><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/><drawing r:id="rId1"/></worksheet>`;
-  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts><fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="18"/><color rgb="FF046CB4"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF046CB4"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const SI={b:1,n:2,bn:3,t:4,h:5,j:6,sec:7,sub:8,subn:9,tot:10,totn:11,p:12};
+  const sheetXml=(sh,k)=>{
+    const body=sh.rows.map((r,ri)=>`<row r="${ri+1}"${ri===0&&k===0?' ht="48" customHeight="1"':''}>`+r.map((c,ci)=>{
+      const v=c&&typeof c==='object'?c.v:c,st=c&&typeof c==='object'?SI[c.s]||0:0,ref=col(ci)+(ri+1),sa=st?` s="${st}"`:'';
+      if(v===''||v==null)return st?`<c r="${ref}"${sa}/>`:'';
+      return typeof v==='number'?`<c r="${ref}"${sa}><v>${v}</v></c>`:`<c r="${ref}"${sa} t="inlineStr"><is><t xml:space="preserve">${X(v)}</t></is></c>`;
+    }).join('')+'</row>').join('');
+    const fz=sh.freeze?`<sheetViews><sheetView workbookViewId="0"><pane ySplit="${sh.freeze}" topLeftCell="A${sh.freeze+1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`:'';
+    const af=sh.filter?`<autoFilter ref="${sh.filter}"/>`:'';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>${fz}<cols>${sh.widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${body}</sheetData>${af}<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>${k===0?'<drawing r:id="rId1"/>':''}</worksheet>`;
+  };
+  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts><fonts count="5"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="18"/><color rgb="FF046CB4"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF046CB4"/><name val="Calibri"/></font></fonts><fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF046CB4"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7F1FA"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F7FB"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="13"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="4" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="1" fillId="4" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="1" fillId="3" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/><xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   const EMU=9525,lh=58,lw=Math.round(lh*199/220);
   const drawing=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>${2*EMU}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${3*EMU}</xdr:rowOff></xdr:from><xdr:ext cx="${lw*EMU}" cy="${lh*EMU}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${lw*EMU}" cy="${lh*EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`;
   const RELNS='http://schemas.openxmlformats.org/package/2006/relationships',DOCREL='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-  return zipBlob([
-    ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+  const safe=n=>String(n).replace(/[\[\]\*\?\/\\:]/g,' ').slice(0,31);
+  const files=[
+    ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map((_,k)=>`<Override PartName="/xl/worksheets/sheet${k+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')+'<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
     ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${DOCREL}"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>`],
-    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${DOCREL}/styles" Target="styles.xml"/></Relationships>`],
-    ['xl/worksheets/sheet1.xml',sheet],['xl/styles.xml',styles],
+    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${DOCREL}"><sheets>${sheets.map((sh,k)=>`<sheet name="${X(safe(sh.name))}" sheetId="${k+1}" r:id="rId${k+1}"/>`).join('')}</sheets>${sheets.some(sh=>sh.filter)?`<definedNames>${sheets.map((sh,k)=>sh.filter?`<definedName name="_xlnm._FilterDatabase" localSheetId="${k}" hidden="1">'${X(safe(sh.name))}'!$${sh.filter.replace(':',':$').replace(/([A-Z]+)(\d+)/g,'$1$$$2')}</definedName>`:'').join('')}</definedNames>`:''}</workbook>`],
+    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}">${sheets.map((_,k)=>`<Relationship Id="rId${k+1}" Type="${DOCREL}/worksheet" Target="worksheets/sheet${k+1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length+1}" Type="${DOCREL}/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml',styles],
     ['xl/worksheets/_rels/sheet1.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/drawing" Target="../drawings/drawing1.xml"/></Relationships>`],
     ['xl/drawings/drawing1.xml',drawing],
     ['xl/drawings/_rels/drawing1.xml.rels',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELNS}"><Relationship Id="rId1" Type="${DOCREL}/image" Target="../media/image1.png"/></Relationships>`],
     ['xl/media/image1.png',Uint8Array.from(atob(LOGO_PNG),c=>c.charCodeAt(0))]
-  ]);
+  ];
+  sheets.forEach((sh,k)=>files.push([`xl/worksheets/sheet${k+1}.xml`,sheetXml(sh,k)]));
+  return zipBlob(files);
 }
+const xlsxBlob=(rows,widths)=>xlsxBook([{name:'Report',rows,widths}]);
 // ---------- Sales: search + summary ----------
 const SAL_ST={approved:['Approved','done','The estimate is approved. You can view and print the summary.'],pending:['Pending approval','ip','The estimate is waiting for approval.'],returned:['Returned for revision','ret','The approver returned the estimate to the Estimator for changes.']};
 const DEC_ST={sub:'Submitted, not yet estimated',ip:'In estimation',drev:'Revised declaration, waiting for an updated estimate',created:'Estimate created',done:'Estimate created'};

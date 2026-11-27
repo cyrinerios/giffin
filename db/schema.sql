@@ -10,7 +10,7 @@ create table if not exists users (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   email       text unique,
-  role        text not null check (role in ('pm', 'estimator')),
+  role        text not null check (role in ('pm', 'estimator', 'approver')),
   created_at  timestamptz not null default now()
 );
 
@@ -63,6 +63,17 @@ create table if not exists estimate_revisions (
   saved_by      text not null,
   saved_at      timestamptz not null default now(),
   unique (estimate_id, rev)
+);
+
+-- Approver decisions on estimate revisions (only the latest revision can be acted on)
+create table if not exists estimate_approvals (
+  id            uuid primary key default gen_random_uuid(),
+  estimate_id   uuid not null references estimates(id) on delete cascade,
+  rev           integer not null,
+  action        text not null check (action in ('approved', 'returned')),
+  comment       text,                              -- required when returned
+  decided_by    text not null,
+  decided_at    timestamptz not null default now()
 );
 
 create index if not exists declarations_pm_idx on declarations (pm_name);

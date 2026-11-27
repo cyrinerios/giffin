@@ -4,6 +4,7 @@ One-page web app for Project Manager declarations and estimates.
 
 - **Login as Project Manager** (Eyad, Johnpaul, Wael): create a Project Manager Declaration, submit it to the Estimator, revise it (‑R1, ‑R2 …), and follow its status and history on your dashboard.
 - **Login as Estimator**: see declarations received from each Project Manager, view them, estimate them in the Estimation Form, save estimates and revisions, and review the revision history (who, when, what changed). Export any revision to PDF.
+- **Login as Estimate Approver**: see estimates waiting for approval, view them, Approve or Return for revision (with a reason), and see returned and approved estimates. Approval status shows on every dashboard and in the history.
 - Exports: Excel (.xlsx) and PDF (A4 portrait) for both forms.
 
 ## Files

@@ -44,6 +44,9 @@ legend,label.l{display:block;font-size:13px;font-weight:600;color:var(--mute);ma
 .role input:checked+span{border-color:var(--brand);background:var(--head)}
 .role input:focus-visible+span{outline:2px solid var(--blue);outline-offset:2px}
 .who{margin-bottom:20px}
+input[type=password]{font:inherit;font-size:16px;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:9px 64px 9px 11px;width:100%;min-height:46px}
+.pwrap{position:relative}.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);font:inherit;font-size:14px;font-weight:600;border:0;background:none;color:var(--blue);min-height:40px;padding:0 10px;cursor:pointer}
+.go:disabled{opacity:.7;cursor:wait}
 select,input[type=text]{font:inherit;font-size:16px;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-height:46px}
 select:focus,input:focus,button:focus-visible{outline:2px solid var(--blue);outline-offset:1px;border-color:var(--blue)}
 .go{font:inherit;font-weight:700;font-size:17px;width:100%;min-height:50px;border:0;border-radius:10px;background:var(--brand);color:#fff;cursor:pointer}
@@ -199,20 +202,24 @@ body.in{overflow:hidden}
       </div>
     </fieldset>
     <div class="who" id="pmBox" hidden>
-      <label class="l" for="pmSel">Project Manager</label>
+      <label class="l" for="pmSel">Username</label>
       <select id="pmSel"><option value="">Select your name…</option><option>Eyad</option><option>Johnpaul</option><option>Wael</option></select>
     </div>
     <div class="who" id="estBox" hidden>
-      <label class="l" for="estName">Estimator name</label>
-      <input type="text" id="estName" autocomplete="name" placeholder="Your name">
+      <label class="l" for="estName">Username</label>
+      <input type="text" id="estName" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Your username">
     </div>
     <div class="who" id="aprBox" hidden>
-      <label class="l" for="aprName">Approver name</label>
-      <input type="text" id="aprName" autocomplete="name" placeholder="Your name">
+      <label class="l" for="aprName">Username</label>
+      <input type="text" id="aprName" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Your username">
     </div>
-    <button class="go" type="submit">Login</button>
+    <div class="who" id="pwBox" hidden>
+      <label class="l" for="pw">Password</label>
+      <div class="pwrap"><input type="password" id="pw" autocomplete="current-password" placeholder="Your password"><button type="button" class="eye" id="pwEye" aria-label="Show password" aria-pressed="false">Show</button></div>
+    </div>
+    <button class="go" type="submit" id="goBtn">Login</button>
     <p class="err" id="err" role="alert"></p>
-    <p class="note">Declarations and estimates are saved in this browser on this computer, so Project Managers, Estimators and Approvers need to use the same computer.</p>
+    <p class="note">Sign in with the username and password given to you. Declarations and estimates are still saved in this browser on this computer, so everyone needs to use the same computer until the shared database is connected.</p>
   </form>
 </main>
 </section>
@@ -363,6 +370,7 @@ function aprRow(e,mode){
 }
 let filterPM='';
 function renderDash(){
+  if(ME&&ME.exp&&ME.exp<Date.now()){window.__logout();$('err').textContent='Your session has ended. Please sign in again.';return}
   const all=load().sort((a,b)=>b.submittedAt.localeCompare(a.submittedAt));
   $('dWho').innerHTML='Logged in as <b>'+({pm:'Project Manager',est:'Estimator',apr:'Estimate Approver'}[ME.r])+' · '+esc(ME.name)+'</b>';
   if(ME.r==='pm'){
@@ -663,22 +671,32 @@ function saveSession(){try{sessionStorage.setItem(SKEY,JSON.stringify(ME))}catch
 // ---------- login ----------
 const radios=[...document.querySelectorAll('input[name=role]')];
 const role=()=>radios.find(r=>r.checked)?.value||'';
-function showWho(){const r=role();$('pmBox').hidden=r!=='pm';$('estBox').hidden=r!=='est';$('aprBox').hidden=r!=='apr';$('err').textContent=''}
+function showWho(){const r=role();$('pmBox').hidden=r!=='pm';$('estBox').hidden=r!=='est';$('aprBox').hidden=r!=='apr';$('pwBox').hidden=!r;$('err').textContent=''}
 const nameEl=r=>r==='pm'?$('pmSel'):r==='apr'?$('aprName'):$('estName');
 radios.forEach(r=>r.addEventListener('change',()=>{showWho();nameEl(role()).focus()}));
-['pmSel','estName','aprName'].forEach(id=>$(id).addEventListener('input',()=>$('err').textContent=''));
+$('pwEye').onclick=()=>{const v=$('pw').type==='password';$('pw').type=v?'text':'password';$('pwEye').textContent=v?'Hide':'Show';$('pwEye').setAttribute('aria-pressed',String(v));$('pwEye').setAttribute('aria-label',v?'Hide password':'Show password')};
+['pmSel','estName','aprName','pw'].forEach(id=>$(id).addEventListener('input',()=>$('err').textContent=''));
 try{const L=JSON.parse(localStorage.getItem(LKEY)||'{}');if(L.role){const r=radios.find(x=>x.value===L.role);if(r)r.checked=true}if(L.pm)$('pmSel').value=L.pm;if(L.est)$('estName').value=L.est;if(L.apr)$('aprName').value=L.apr}catch(e){}
 showWho();
-$('f').addEventListener('submit',e=>{
+$('f').addEventListener('submit',async e=>{
   e.preventDefault();
   const r=role();
   if(!r){$('err').textContent='Choose Project Manager, Estimator or Estimate Approver.';radios[0].focus();return}
   const name=r==='pm'?$('pmSel').value:nameEl(r).value.trim().slice(0,60);
-  if(!name){$('err').textContent=r==='pm'?'Select your name.':'Enter your name.';nameEl(r).focus();return}
+  if(!name){$('err').textContent=r==='pm'?'Select your username.':'Enter your username.';nameEl(r).focus();return}
+  const pw=$('pw').value;
+  if(!pw){$('err').textContent='Enter your password.';$('pw').focus();return}
+  const go=$('goBtn');go.disabled=true;go.textContent='Signing in…';
+  let res=null;
+  try{const rq=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:r,username:name,password:pw})});res=await rq.json().catch(()=>null);if(res&&!rq.ok&&!res.error)res.error='Sign-in failed.'}
+  catch(x){res={ok:false,error:location.protocol==='file:'?'Sign-in needs the online version of the portal. Open it from its web address.':'Could not reach the sign-in service. Check your connection and try again.'}}
+  go.disabled=false;go.textContent='Login';
+  if(!res||!res.ok){$('err').textContent=(res&&res.error)||'Sign-in failed.';$('pw').select();return}
+  $('pw').value='';$('pw').type='password';$('pwEye').textContent='Show';
   try{localStorage.setItem(LKEY,JSON.stringify({role:r,pm:$('pmSel').value,est:$('estName').value.trim(),apr:$('aprName').value.trim()}))}catch(e){}
-  ME={r,name};saveSession();renderDash();
+  ME={r:res.role,name:res.name,token:res.token,exp:res.exp};saveSession();renderDash();
 });
-try{const ss=JSON.parse(sessionStorage.getItem(SKEY)||'null');if(ss&&(ss.r==='pm'&&PMS.includes(ss.name)||(ss.r==='est'||ss.r==='apr')&&ss.name)){ME=ss;renderDash()}}catch(e){}
+try{const ss=JSON.parse(sessionStorage.getItem(SKEY)||'null');if(ss&&ss.token&&ss.exp>Date.now()&&(ss.r==='pm'&&PMS.includes(ss.name)||(ss.r==='est'||ss.r==='apr')&&ss.name)){ME=ss;renderDash()}else sessionStorage.removeItem(SKEY)}catch(e){}
 }
 </script>
 </body>

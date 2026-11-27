@@ -7,11 +7,24 @@ One-page web app for Project Manager declarations and estimates.
 - **Login as Estimate Approver**: see estimates waiting for approval, view them, Approve or Return for revision (with a reason), and see returned and approved estimates. Approval status shows on every dashboard and in the history.
 - Exports: Excel (.xlsx) and PDF (A4 portrait) for both forms.
 
+## Sign-in
+
+Each role signs in with a username and password. The check runs on the server
+(`api/login.js`); usernames and passwords are **not** in this repo. They are kept in
+the Vercel project's sensitive environment variables:
+
+- `PORTAL_USERS`: JSON list of users, e.g. `[{"u":"Name","r":"pm","p":"password"}]` (roles: `pm`, `est`, `apr`)
+- `SESSION_SECRET`: random string used to sign session tokens (sessions last 12 hours)
+
+To add a user or change a password, edit `PORTAL_USERS` in Vercel (Settings → Environment
+Variables) and redeploy. Sign-in only works on the hosted site, not when the file is opened from a computer.
+
 ## Files
 
 | Path | What it is |
 |---|---|
 | `index.html` | The whole portal (login, dashboards, both forms) in one file |
+| `api/login.js` | Server-side sign-in (Vercel Function) |
 | `db/schema.sql` | PostgreSQL tables for moving the data into a shared Neon database |
 
 ## Where the data lives today

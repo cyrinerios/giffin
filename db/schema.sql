@@ -1,7 +1,7 @@
--- Giffin forms portal: PostgreSQL schema (Neon)
+-- Giffin forms portal: PostgreSQL schema (Prisma Postgres on Vercel)
 -- Mirrors what the portal currently keeps in the browser, so the data can move
--- into a shared database. Run once against the Neon database (SQL Editor in the
--- Neon console, or: psql "$DATABASE_URL" -f db/schema.sql).
+-- into a shared database. Run once against the database
+-- (psql "$DATABASE_URL" -f db/schema.sql, or the Prisma Console query editor).
 
 create extension if not exists pgcrypto;
 

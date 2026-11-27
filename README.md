@@ -19,10 +19,15 @@ The portal currently saves declarations, estimates and history in each user's
 browser (localStorage). Hosting it on Vercel gives everyone the same link, but the
 data is still per browser until the portal is connected to the database.
 
-## Database (Neon Postgres via Vercel)
+## Database (Prisma Postgres via Vercel)
 
-1. In the Vercel project, open **Storage → Create Database → Neon** (Marketplace) and connect it to this project.
+The Vercel team already has the Prisma Postgres integration (free plan), so the
+portal uses it as its PostgreSQL database.
+
+1. Vercel → project **giffin** → **Storage** → **Create Database** → **Prisma Postgres**
+   (name it `giffin-db`) → connect it to the **giffin** project for Production, Preview and Development.
    Vercel adds `DATABASE_URL` (and related) environment variables automatically.
-2. Run `db/schema.sql` once in the Neon SQL Editor to create the tables.
+2. Run `db/schema.sql` once against the database to create the tables
+   (Prisma Console query editor, or `psql "$DATABASE_URL" -f db/schema.sql`).
 3. Next step: add API routes that read and write these tables, and switch the portal's
    save/load calls from the browser to the API.

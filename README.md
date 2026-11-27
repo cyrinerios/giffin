@@ -5,6 +5,7 @@ One-page web app for Project Manager declarations and estimates.
 - **Login as Project Manager** (Eyad, Johnpaul, Wael): create a Project Manager Declaration, submit it to the Estimator, revise it (‑R1, ‑R2 …), and follow its status and history on your dashboard.
 - **Login as Estimator**: see declarations received from each Project Manager, view them, estimate them in the Estimation Form, save estimates and revisions, and review the revision history (who, when, what changed). Export any revision to PDF.
 - **Login as Estimate Approver**: see estimates waiting for approval, view them, Approve or Return for revision (with a reason), and see returned and approved estimates. Approval status shows on every dashboard and in the history.
+- **Login as Sales**: search an estimate or declaration reference to see its status. Once approved, view and print a summary PDF showing only each job's section totals, sub totals and the grand total (the server never sends Sales the detailed breakdown).
 - Exports: Excel (.xlsx) and PDF (A4 portrait) for both forms.
 
 ## Sign-in
@@ -13,7 +14,7 @@ Each role signs in with a username and password. The check runs on the server
 (`api/login.js`); usernames and passwords are **not** in this repo. They are kept in
 the Vercel project's sensitive environment variables:
 
-- `PORTAL_USERS`: JSON list of users, e.g. `[{"u":"Name","r":"pm","p":"password"}]` (roles: `pm`, `est`, `apr`)
+- `PORTAL_USERS`: JSON list of users, e.g. `[{"u":"Name","r":"pm","p":"password"}]` (roles: `pm`, `est`, `apr`, `sal`)
 - `SESSION_SECRET`: random string used to sign session tokens (sessions last 12 hours)
 
 To add a user or change a password, edit `PORTAL_USERS` in Vercel (Settings → Environment

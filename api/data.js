@@ -9,6 +9,40 @@ const { verifyToken, db, ensureSchema, send } = require('./_lib');
 
 const MAX_DOC_BYTES = 2_000_000;
 
+// ---------- Sales view (summaries only) ----------
+const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+const cellV = c => (c && typeof c === 'object' ? c.v : c);
+
+// reads the saved estimate rows: "JOB / SCOPE n: name" bands, "<Section> subtotal" rows, "Job n total" and "GRAND TOTAL"
+function summarize(rows) {
+  const jobs = []; let cur = null, grand = null;
+  for (const r of rows || []) {
+    const label = String(cellV(r && r[1]) ?? '');
+    let m;
+    if ((m = label.match(/^JOB \/ SCOPE (\d+):?\s*(.*)$/i))) { cur = { no: +m[1], name: m[2] || '', sections: [], subtotal: 0 }; jobs.push(cur); continue; }
+    if (cur && / subtotal$/i.test(label)) { cur.sections.push({ name: label.replace(/ subtotal$/i, ''), total: num(cellV(r[8])) }); continue; }
+    if (cur && /^Job \d+ total/i.test(label)) { cur.subtotal = num(cellV(r[8])); continue; }
+    if (grand == null && /^GRAND TOTAL/i.test(label) && r[8] != null && cellV(r[8]) !== '') grand = num(cellV(r[8]));
+  }
+  if (grand == null) grand = jobs.reduce((a, j) => a + j.subtotal, 0);
+  return { jobs, grand };
+}
+
+function salesEstimate(e) {
+  const revs = Array.isArray(e.revisions) ? e.revisions : [];
+  const L = revs[revs.length - 1] || {};
+  const a = (e.approvals || []).filter(x => x.rev === L.rev).slice(-1)[0];
+  const status = a ? (a.action === 'approved' ? 'approved' : 'returned') : 'pending';
+  const out = { id: e.id, estNo: e.estNo, decNo: e.decNo || null, decId: e.decId || null, pm: e.pm, createdAt: e.createdAt, rev: L.rev ?? 0, savedAt: L.at || null, status, cur: L.cur || 'AED' };
+  if (status === 'approved') { out.approvedAt = a.at; out.approvedBy = a.by; out.summary = summarize(L.rows); }
+  return out;
+}
+
+function salesDeclaration(d) {
+  const rev = d.decRev || 0;
+  return { id: d.id, decNo: d.decNo + (rev ? '-R' + rev : ''), pm: d.pm, status: d.status, submittedAt: d.submittedAt, jobs: (d.jobs || []).map(j => j.name || '') };
+}
+
 module.exports = async (req, res) => {
   const user = verifyToken(req);
   if (!user) return send(res, 401, { ok: false, error: 'Please sign in again.' });
@@ -18,6 +52,15 @@ module.exports = async (req, res) => {
 
     if (req.method === 'GET') {
       const { rows } = await db().query('select kind, data from portal_docs order by updated_at');
+      if (user.role === 'sal') {
+        // Sales never receives estimate details: only references, status, and for approved
+        // estimates the per-section and per-job totals plus the grand total.
+        return send(res, 200, {
+          ok: true,
+          declarations: rows.filter(r => r.kind === 'declaration').map(r => salesDeclaration(r.data)),
+          estimates: rows.filter(r => r.kind === 'estimate').map(r => salesEstimate(r.data)),
+        });
+      }
       return send(res, 200, {
         ok: true,
         declarations: rows.filter(r => r.kind === 'declaration').map(r => r.data),
